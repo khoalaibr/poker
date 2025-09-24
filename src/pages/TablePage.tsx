@@ -11,16 +11,16 @@ import {
 import { Button } from '../components/ui/Button';
 import { Pot } from '../components/ui/Pot';
 import { DeckSelector } from '../components/features/DeckSelector';
-import type { RootState } from '../store/store';
 import type { Card } from '../lib/deck';
+import { ActionPanel } from '../components/features/ActionPanel';
+import type { RootState } from '../store/store';
 
 export const TablePage = () => {
   const dispatch = useDispatch();
-  const { players, buttonSeat, heroSeat, handState, pot, deck } = useSelector(
+  const { players, buttonSeat, heroSeat, handState, pot, deck, currentPlayerSeat, amountToCall, blinds } = useSelector(
     (state: RootState) => state.table
   );
 
-  // --- NUEVO ESTADO PARA CONTROLAR EL MODAL ---
   const [isDeckSelectorOpen, setIsDeckSelectorOpen] = useState(false);
 
   useEffect(() => {
@@ -28,6 +28,8 @@ export const TablePage = () => {
   }, [handState]);
 
   const isHandInProgress = handState !== 'PREHAND';
+  // CORRECCIÓN: Identificamos al jugador activo, sin importar si es HERO.
+  const activePlayer = players.find(p => p.seat === currentPlayerSeat);
 
   const handleSeatClick = (seatIndex: number) => {
     if (isHandInProgress) return;
@@ -42,14 +44,19 @@ export const TablePage = () => {
     dispatch(startHand());
   };
 
-  // --- NUEVA FUNCIÓN PARA CONFIRMAR LA SELECCIÓN ---
   const handleSelectCardsConfirm = (selectedCards: Card[]) => {
     if (selectedCards.length === 2) {
       dispatch(setHeroHoleCards(selectedCards));
-      setIsDeckSelectorOpen(false); // Cierra el modal
+      setIsDeckSelectorOpen(false);
     }
   };
 
+  // Placeholder functions for the action panel
+  const handleFold = () => console.log('Action: FOLD');
+  const handleCheck = () => console.log('Action: CHECK');
+  const handleCall = () => console.log('Action: CALL');
+  const handleBet = (amount: number) => console.log(`Action: BET ${amount}`);
+  const handleRaise = (amount: number) => console.log(`Action: RAISE to ${amount}`);
 
   return (
     <div className="flex min-h-screen w-full flex-col items-center justify-center gap-8 bg-slate-800 p-4">
@@ -64,22 +71,37 @@ export const TablePage = () => {
             isButton={player.seat === buttonSeat}
             isHero={player.seat === heroSeat}
             isHandInProgress={isHandInProgress}
+            isCurrentPlayer={player.seat === currentPlayerSeat}
             onSeatClick={() => handleSeatClick(player.seat)}
             onStackChange={(newStack) => dispatch(updatePlayerStack({ seat: player.seat, stack: newStack }))}
-            onSelectCardsClick={() => setIsDeckSelectorOpen(true)} // Abre el modal
+            onSelectCardsClick={() => setIsDeckSelectorOpen(true)}
           />
         ))}
       </div>
       
-      <div className="absolute bottom-10">
+      <div className="absolute bottom-10 flex flex-col items-center gap-4">
         {!isHandInProgress && buttonSeat !== null && heroSeat !== null && (
           <Button onClick={handleStartHand}>
             Repartir Cartas
           </Button>
         )}
+
+        {/* CORRECCIÓN: El panel ahora se muestra para el 'activePlayer' */}
+        {isHandInProgress && activePlayer && (
+          <ActionPanel
+            playerName={`Asiento ${activePlayer.seat + 1}`}
+            amountToCall={amountToCall}
+            playerStack={activePlayer.stack}
+            minRaise={blinds.bb * 2} // Lógica simplificada
+            onFold={handleFold}
+            onCheck={handleCheck}
+            onCall={handleCall}
+            onBet={handleBet}
+            onRaise={handleRaise}
+          />
+        )}
       </div>
 
-      {/* --- RENDERIZADO CONDICIONAL DEL MODAL --- */}
       {isDeckSelectorOpen && (
         <DeckSelector
           deck={deck}
@@ -91,4 +113,3 @@ export const TablePage = () => {
     </div>
   );
 };
-

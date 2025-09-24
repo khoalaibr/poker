@@ -1,4 +1,3 @@
-
 import type { Player } from '../../features/table/tableSlice';
 import { Button } from './Button';
 import { Input } from './Input';
@@ -9,9 +8,10 @@ interface SeatProps {
   isHero: boolean;
   isButton: boolean;
   isHandInProgress: boolean;
+  isCurrentPlayer: boolean; // Prop añadida para saber si es el turno
   onSeatClick: () => void;
   onStackChange: (newStack: number) => void;
-  onSelectCardsClick: () => void; // Cambiado el nombre para mayor claridad
+  onSelectCardsClick: () => void;
 }
 
 export const Seat = ({
@@ -19,6 +19,7 @@ export const Seat = ({
   isHero,
   isButton,
   isHandInProgress,
+  isCurrentPlayer, // Prop añadida
   onSeatClick,
   onStackChange,
   onSelectCardsClick,
@@ -35,9 +36,14 @@ export const Seat = ({
     e.stopPropagation();
   };
 
-  const heroRing = isHero ? 'ring-4 ring-amber-400' : 'ring-2 ring-slate-600';
-  // Aumentamos la altura para dar espacio a las cartas
-  const seatClasses = `relative flex h-36 w-44 flex-col items-center justify-between rounded-lg bg-slate-700 text-white shadow-lg transition-all cursor-pointer ${heroRing}`;
+  // Lógica de resaltado: El turno activo tiene prioridad sobre el de HERO
+  const ringClasses = isCurrentPlayer
+    ? 'ring-4 ring-yellow-400 shadow-yellow-400/30'
+    : isHero
+    ? 'ring-4 ring-amber-400'
+    : 'ring-2 ring-slate-600';
+
+  const seatClasses = `relative flex h-36 w-44 flex-col items-center justify-between rounded-lg bg-slate-700 text-white shadow-lg transition-all cursor-pointer ${ringClasses}`;
   const disabledInputStyles = isHandInProgress ? 'opacity-60 cursor-not-allowed' : '';
 
   return (
@@ -51,24 +57,20 @@ export const Seat = ({
         )}
       </div>
 
-      {/* --- NUEVA LÓGICA PARA MOSTRAR CARTAS O BOTÓN --- */}
       <div className="flex h-14 items-center justify-center gap-1">
         {isHero && isHandInProgress ? (
           player.holeCards && player.holeCards.length === 2 ? (
-            // Si el HERO tiene cartas, las mostramos
             <>
               <PlayingCard card={player.holeCards[0]} />
               <PlayingCard card={player.holeCards[1]} />
             </>
           ) : (
-            // Si no, mostramos el botón de selección
-            <Button onClick={onSelectCardsClick} variant="secondary">
+            <Button onClick={(e) => { e.stopPropagation(); onSelectCardsClick(); }} variant="secondary">
               Seleccionar Cartas
             </Button>
           )
         ) : null}
       </div>
-
 
       <div
         className="flex w-full flex-col items-center rounded-b-md bg-slate-900/50 p-2"
@@ -92,3 +94,4 @@ export const Seat = ({
     </div>
   );
 };
+
