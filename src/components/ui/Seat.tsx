@@ -8,7 +8,7 @@ interface SeatProps {
   isHero: boolean;
   isButton: boolean;
   isHandInProgress: boolean;
-  isCurrentPlayer: boolean; // Prop añadida para saber si es el turno
+  isCurrentPlayer: boolean;
   onSeatClick: () => void;
   onStackChange: (newStack: number) => void;
   onSelectCardsClick: () => void;
@@ -19,7 +19,7 @@ export const Seat = ({
   isHero,
   isButton,
   isHandInProgress,
-  isCurrentPlayer, // Prop añadida
+  isCurrentPlayer,
   onSeatClick,
   onStackChange,
   onSelectCardsClick,
@@ -36,14 +36,16 @@ export const Seat = ({
     e.stopPropagation();
   };
 
-  // Lógica de resaltado: El turno activo tiene prioridad sobre el de HERO
   const ringClasses = isCurrentPlayer
     ? 'ring-4 ring-yellow-400 shadow-yellow-400/30'
     : isHero
     ? 'ring-4 ring-amber-400'
     : 'ring-2 ring-slate-600';
 
-  const seatClasses = `relative flex h-36 w-44 flex-col items-center justify-between rounded-lg bg-slate-700 text-white shadow-lg transition-all cursor-pointer ${ringClasses}`;
+  // NEW: Visual feedback for folded players
+  const foldedClass = player.hasFolded ? 'opacity-40' : '';
+
+  const seatClasses = `relative flex h-36 w-44 flex-col items-center justify-between rounded-lg bg-slate-700 text-white shadow-lg transition-all cursor-pointer ${ringClasses} ${foldedClass}`;
   const disabledInputStyles = isHandInProgress ? 'opacity-60 cursor-not-allowed' : '';
 
   return (
@@ -65,9 +67,12 @@ export const Seat = ({
               <PlayingCard card={player.holeCards[1]} />
             </>
           ) : (
-            <Button onClick={(e) => { e.stopPropagation(); onSelectCardsClick(); }} variant="secondary">
-              Seleccionar Cartas
-            </Button>
+            // Prevent showing button if player has folded
+            !player.hasFolded && (
+              <Button onClick={(e) => { e.stopPropagation(); onSelectCardsClick(); }} variant="secondary">
+                Seleccionar Cartas
+              </Button>
+            )
           )
         ) : null}
       </div>
@@ -94,4 +99,3 @@ export const Seat = ({
     </div>
   );
 };
-

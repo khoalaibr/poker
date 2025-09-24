@@ -7,6 +7,7 @@ import {
   setHeroSeat,
   startHand,
   updatePlayerStack,
+  playerAct, // Import the new action
 } from '../features/table/tableSlice';
 import { Button } from '../components/ui/Button';
 import { Pot } from '../components/ui/Pot';
@@ -28,7 +29,6 @@ export const TablePage = () => {
   }, [handState]);
 
   const isHandInProgress = handState !== 'PREHAND';
-  // CORRECCIÓN: Identificamos al jugador activo, sin importar si es HERO.
   const activePlayer = players.find(p => p.seat === currentPlayerSeat);
 
   const handleSeatClick = (seatIndex: number) => {
@@ -51,12 +51,22 @@ export const TablePage = () => {
     }
   };
 
-  // Placeholder functions for the action panel
-  const handleFold = () => console.log('Action: FOLD');
-  const handleCheck = () => console.log('Action: CHECK');
-  const handleCall = () => console.log('Action: CALL');
-  const handleBet = (amount: number) => console.log(`Action: BET ${amount}`);
-  const handleRaise = (amount: number) => console.log(`Action: RAISE to ${amount}`);
+  // --- CONNECT ACTIONS TO REDUX ---
+  const handleFold = () => {
+    if (activePlayer) dispatch(playerAct({ seat: activePlayer.seat, type: 'FOLD' }));
+  };
+  const handleCheck = () => {
+    if (activePlayer) dispatch(playerAct({ seat: activePlayer.seat, type: 'CHECK' }));
+  };
+  const handleCall = () => {
+    if (activePlayer) dispatch(playerAct({ seat: activePlayer.seat, type: 'CALL' }));
+  };
+  const handleBet = (amount: number) => {
+    if (activePlayer) dispatch(playerAct({ seat: activePlayer.seat, type: 'BET', amount }));
+  };
+  const handleRaise = (amount: number) => {
+    if (activePlayer) dispatch(playerAct({ seat: activePlayer.seat, type: 'RAISE', amount }));
+  };
 
   return (
     <div className="flex min-h-screen w-full flex-col items-center justify-center gap-8 bg-slate-800 p-4">
@@ -86,11 +96,10 @@ export const TablePage = () => {
           </Button>
         )}
 
-        {/* CORRECCIÓN: El panel ahora se muestra para el 'activePlayer' */}
         {isHandInProgress && activePlayer && (
           <ActionPanel
             playerName={`Asiento ${activePlayer.seat + 1}`}
-            amountToCall={amountToCall}
+            amountToCall={amountToCall - activePlayer.amountInvestedThisStreet}
             playerStack={activePlayer.stack}
             minRaise={blinds.bb * 2} // Lógica simplificada
             onFold={handleFold}
@@ -113,3 +122,4 @@ export const TablePage = () => {
     </div>
   );
 };
+
