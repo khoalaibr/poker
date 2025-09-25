@@ -18,7 +18,6 @@ export interface Player {
   stack: number;
   position: Position;
   holeCards?: Card[];
-  // NEW: Player state properties
   hasFolded: boolean;
   isAllIn: boolean;
   amountInvestedThisStreet: number;
@@ -32,11 +31,12 @@ export interface TableState {
   pot: number;
   deck: Deck;
   handState: HandState;
-  // NEW: Game flow properties
   currentPlayerSeat: number | null;
   lastAggressorSeat: number | null;
   amountToCall: number;
   log: LogEntry[];
+  // NEW: Community cards
+  board: Card[];
 }
 
 // --- INITIAL STATE ---
@@ -52,39 +52,43 @@ const initialState: TableState = {
   lastAggressorSeat: null,
   amountToCall: 0,
   log: [],
+  board: [], // Initialize board
 };
 
 // --- HELPER LOGIC ---
-/**
- * Finds the next player to act and handles the end of a betting round.
- */
 const moveToNextPlayer = (state: TableState) => {
   if (state.currentPlayerSeat === null) return;
 
   const activePlayers = state.players.filter(p => !p.hasFolded && !p.isAllIn);
   if (activePlayers.length <= 1) {
-    // Hand over logic (to be implemented)
+    state.handState = 'SHOWDOWN'; // Simplified end of hand
     state.currentPlayerSeat = null;
     return;
   }
   
-  // End of round check: Does everyone who is still in the hand have the same amount invested?
-  const amountsInvested = activePlayers.map(p => p.amountInvestedThisStreet);
-  const allMatched = new Set(amountsInvested).size === 1;
-  const actionIsClosed = state.currentPlayerSeat === state.lastAggressorSeat || state.lastAggressorSeat === null;
+  // Check if the betting round is over
+  const lastAggressor = state.players.find(p => p.seat === state.lastAggressorSeat);
+  const startPlayerIndex = state.players.findIndex(p => p.seat === (lastAggressor ? lastAggressor.seat : state.buttonSeat));
 
-  if (allMatched && actionIsClosed) {
-    // End of the betting round, proceed to next street (simplified for now)
-    state.handState = state.handState === 'PREFLOP' ? 'FLOP' : 'SHOWDOWN'; // Simplified
-    state.players.forEach(p => { p.amountInvestedThisStreet = 0; });
-    state.amountToCall = 0;
-    const firstPlayerIndex = state.players.findIndex(p => p.seat === state.buttonSeat);
-    let nextPlayer = state.players.slice(firstPlayerIndex + 1).find(p => !p.hasFolded);
-    if (!nextPlayer) {
-      nextPlayer = state.players.find(p => !p.hasFolded);
+  let playersToAct = 0;
+  for (let i = 0; i < state.players.length; i++) {
+    const player = state.players[(startPlayerIndex + i) % state.players.length];
+    if (!player.hasFolded && !player.isAllIn) {
+      if (player.amountInvestedThisStreet < state.amountToCall) {
+        playersToAct++;
+      }
     }
-    state.currentPlayerSeat = nextPlayer ? nextPlayer.seat : null;
-    state.lastAggressorSeat = null;
+  }
+
+  // A special case for the Big Blind pre-flop
+  const isPreflop = state.handState === 'PREFLOP';
+  const bbPlayer = state.players.find(p => p.position === 'BB');
+  const bbCanStillAct = isPreflop && bbPlayer && !bbPlayer.hasFolded && !bbPlayer.isAllIn && bbPlayer.amountInvestedThisStreet === state.amountToCall && state.lastAggressorSeat === bbPlayer.seat;
+
+
+  if (playersToAct === 0 && !bbCanStillAct) {
+    // End of the betting round
+    state.currentPlayerSeat = null; // Signal to UI to deal next street
     return;
   }
 
@@ -105,160 +109,134 @@ export const tableSlice = createSlice({
   name: 'table',
   initialState,
   reducers: {
+    // ... setPlayerCount, setButtonSeat, etc. remain the same, just ensure they reset the board
     setPlayerCount: (state, action: PayloadAction<number>) => {
       state.players = Array.from({ length: action.payload }, (_, i) => ({
-        seat: i,
-        stack: 100,
-        position: '—',
-        hasFolded: false,
-        isAllIn: false,
-        amountInvestedThisStreet: 0,
+        seat: i, stack: 100, position: '—', hasFolded: false, isAllIn: false, amountInvestedThisStreet: 0,
       }));
-      // Reset everything else
       Object.assign(state, initialState, { players: state.players });
     },
-    // ... other reducers like setButtonSeat, setHeroSeat etc. remain the same
-    setButtonSeat: (state, action: PayloadAction<number | null>) => {
-      state.buttonSeat = action.payload;
-    },
-    setHeroSeat: (state, action: PayloadAction<number | null>) => {
-      state.heroSeat = action.payload;
-    },
+    setButtonSeat: (state, action: PayloadAction<number | null>) => { state.buttonSeat = action.payload; },
+    setHeroSeat: (state, action: PayloadAction<number | null>) => { state.heroSeat = action.payload; },
     updatePlayerStack: (state, action: PayloadAction<{ seat: number; stack: number }>) => {
       const player = state.players.find(p => p.seat === action.payload.seat);
-      if (player) {
-        player.stack = action.payload.stack;
-      }
+      if (player) player.stack = action.payload.stack;
     },
     startHand: (state) => {
       if (state.buttonSeat === null) return;
-      
-      // Reset players' status for the new hand
+      state.board = []; // Clear board for new hand
+      // ... rest of startHand logic remains the same
       state.players.forEach(p => {
-        p.hasFolded = false;
-        p.isAllIn = false;
-        p.amountInvestedThisStreet = 0;
-        p.holeCards = undefined;
+        p.hasFolded = false; p.isAllIn = false; p.amountInvestedThisStreet = 0; p.holeCards = undefined;
       });
-
-      // Assign positions
       const positions = getPlayerPositions(state.players.length, state.buttonSeat);
-      state.players.forEach((player, index) => {
-        player.position = positions[index];
-      });
-
-      // Post blinds
+      state.players.forEach((player, index) => { player.position = positions[index]; });
       const sbPlayer = state.players.find(p => p.position === 'SB');
       const bbPlayer = state.players.find(p => p.position === 'BB' || (state.players.length === 2 && p.position === 'BTN'));
-
       let sbAmount = 0, bbAmount = 0;
       if (sbPlayer) {
         sbAmount = Math.min(sbPlayer.stack, state.blinds.sb);
-        sbPlayer.stack -= sbAmount;
-        sbPlayer.amountInvestedThisStreet = sbAmount;
+        sbPlayer.stack -= sbAmount; sbPlayer.amountInvestedThisStreet = sbAmount;
       }
       if (bbPlayer) {
         bbAmount = Math.min(bbPlayer.stack, state.blinds.bb);
-        bbPlayer.stack -= bbAmount;
-        bbPlayer.amountInvestedThisStreet = bbAmount;
+        bbPlayer.stack -= bbAmount; bbPlayer.amountInvestedThisStreet = bbAmount;
       }
-      
-      state.pot = sbAmount + bbAmount;
-      state.amountToCall = bbAmount;
-      state.deck = shuffleDeck(createDeck());
-      
-      // Determine who acts first
+      state.pot = sbAmount + bbAmount; state.amountToCall = bbAmount; state.deck = shuffleDeck(createDeck());
       const bbIndex = state.players.findIndex(p => p.seat === bbPlayer?.seat);
       const firstToActIndex = (bbIndex + 1) % state.players.length;
       state.currentPlayerSeat = state.players[firstToActIndex].seat;
       state.lastAggressorSeat = bbPlayer ? bbPlayer.seat : null;
-      
-      state.handState = 'PREFLOP';
-      state.log = []; // Clear log for new hand
+      state.handState = 'PREFLOP'; state.log = [];
     },
     setHeroHoleCards: (state, action: PayloadAction<Card[]>) => {
-      if (state.heroSeat !== null) {
-        const hero = state.players.find(p => p.seat === state.heroSeat);
-        if (hero) {
-          hero.holeCards = action.payload;
-          action.payload.forEach(card => {
-            const deckCard = state.deck.find(c => c.id === card.id);
-            if (deckCard) deckCard.inUse = true;
-          });
-        }
+      // ... logic remains the same
+      if (state.heroSeat === null) return;
+      const hero = state.players.find(p => p.seat === state.heroSeat);
+      if (hero) {
+        hero.holeCards = action.payload;
+        action.payload.forEach(card => {
+          const deckCard = state.deck.find(c => c.id === card.id);
+          if (deckCard) deckCard.inUse = true;
+        });
       }
     },
-    // --- NEW PLAYER ACTIONS ---
     playerAct: (state, action: PayloadAction<{ seat: number; type: ActionType; amount?: number }>) => {
+      // ... logic remains the same
       const { seat, type, amount = 0 } = action.payload;
       const player = state.players.find(p => p.seat === seat);
-      if (!player || player.seat !== state.currentPlayerSeat) return; // Act only on your turn
-
+      if (!player || player.seat !== state.currentPlayerSeat) return;
       state.log.push({ seat, action: type, amount, timestamp: Date.now() });
-
       switch (type) {
-        case 'FOLD':
-          player.hasFolded = true;
-          break;
-        case 'CHECK':
-          // Can only check if amountToCall is 0
-          if (state.amountToCall > player.amountInvestedThisStreet) return;
-          break;
+        case 'FOLD': player.hasFolded = true; break;
+        case 'CHECK': if (state.amountToCall > player.amountInvestedThisStreet) return; break;
         case 'CALL':
           const callAmount = Math.min(player.stack, state.amountToCall - player.amountInvestedThisStreet);
-          player.stack -= callAmount;
-          player.amountInvestedThisStreet += callAmount;
-          state.pot += callAmount;
-          if (player.stack === 0) player.isAllIn = true;
-          break;
-        case 'BET':
-        case 'RAISE':
-          // This covers both Bet (amountToCall is 0) and Raise
-          const raiseAmount = amount - player.amountInvestedThisStreet;
-          if (player.stack < raiseAmount) return; // Not enough stack
-          player.stack -= raiseAmount;
-          player.amountInvestedThisStreet += raiseAmount;
-          state.pot += raiseAmount;
-          state.amountToCall = player.amountInvestedThisStreet;
-          state.lastAggressorSeat = player.seat;
-          if (player.stack === 0) player.isAllIn = true;
-          break;
+          player.stack -= callAmount; player.amountInvestedThisStreet += callAmount; state.pot += callAmount;
+          if (player.stack === 0) player.isAllIn = true; break;
+        case 'BET': case 'RAISE':
+          const totalBetAmount = amount; // The amount is the total bet for the street
+          const amountToAdd = totalBetAmount - player.amountInvestedThisStreet;
+          if (player.stack < amountToAdd) return;
+          player.stack -= amountToAdd; player.amountInvestedThisStreet = totalBetAmount; state.pot += amountToAdd;
+          state.amountToCall = totalBetAmount; state.lastAggressorSeat = player.seat;
+          if (player.stack === 0) player.isAllIn = true; break;
       }
-      
       moveToNextPlayer(state);
+    },
+    // --- NEW ACTION TO DEAL COMMUNITY CARDS ---
+    dealCommunityCards: (state, action: PayloadAction<Card[]>) => {
+      const newCards = action.payload;
+      // 1. Add cards to board and mark as used
+      state.board.push(...newCards);
+      newCards.forEach(card => {
+        const deckCard = state.deck.find(c => c.id === card.id);
+        if (deckCard) deckCard.inUse = true;
+      });
+
+      // 2. Transition to next state
+      if (state.board.length === 3) state.handState = 'FLOP';
+      else if (state.board.length === 4) state.handState = 'TURN';
+      else if (state.board.length === 5) state.handState = 'RIVER';
+
+      // 3. Reset betting for the new round
+      state.players.forEach(p => { p.amountInvestedThisStreet = 0; });
+      state.amountToCall = 0;
+      state.lastAggressorSeat = null;
+
+      // 4. Find first player to act (first active player after the button)
+      const buttonIndex = state.players.findIndex(p => p.seat === state.buttonSeat);
+      for (let i = 1; i <= state.players.length; i++) {
+        const player = state.players[(buttonIndex + i) % state.players.length];
+        if (!player.hasFolded && !player.isAllIn) {
+          state.currentPlayerSeat = player.seat;
+          return; // Found the first player
+        }
+      }
     },
   },
 });
 
 // --- HELPER OUTSIDE SLICE FOR POSITIONS ---
 const getPlayerPositions = (playerCount: number, buttonSeat: number): Position[] => {
+  // ... logic remains the same
   const positions: Position[] = Array(playerCount).fill('—');
   if (playerCount < 2) return positions;
-
   if (playerCount === 2) {
     positions[buttonSeat] = 'BTN';
     positions[(buttonSeat + 1) % playerCount] = 'BB';
     return positions;
   }
-
-  const sbIndex = (buttonSeat + 1) % playerCount;
-  const bbIndex = (buttonSeat + 2) % playerCount;
-  
-  positions[buttonSeat] = 'BTN';
-  positions[sbIndex] = 'SB';
-  positions[bbIndex] = 'BB';
-  
-  const positionOrder: Position[] = ['UTG', 'MP', 'CO'];
-  let currentPosIndex = 0;
+  const sbIndex = (buttonSeat + 1) % playerCount; const bbIndex = (buttonSeat + 2) % playerCount;
+  positions[buttonSeat] = 'BTN'; positions[sbIndex] = 'SB'; positions[bbIndex] = 'BB';
+  const positionOrder: Position[] = ['UTG', 'MP', 'CO']; let currentPosIndex = 0;
   for (let i = 3; i < playerCount; i++) {
     const playerIndex = (buttonSeat + i) % playerCount;
     positions[playerIndex] = positionOrder[currentPosIndex] ?? 'MP';
     if(currentPosIndex < positionOrder.length - 1) currentPosIndex++;
   }
-  
   return positions;
 };
-
 
 export const {
   setPlayerCount,
@@ -267,8 +245,8 @@ export const {
   updatePlayerStack,
   startHand,
   setHeroHoleCards,
-  playerAct, // Export the new action
+  playerAct,
+  dealCommunityCards, // Export the new action
 } = tableSlice.actions;
 
 export default tableSlice.reducer;
-
