@@ -8,7 +8,7 @@ interface SeatProps {
   isHero: boolean;
   isButton: boolean;
   isHandInProgress: boolean;
-  isCurrentPlayer: boolean;
+  isCurrentPlayer: boolean; // Para saber si es el turno de este jugador
   onSeatClick: () => void;
   onStackChange: (newStack: number) => void;
   onSelectCardsClick: () => void;
@@ -35,17 +35,16 @@ export const Seat = ({
   const stopPropagation = (e: React.MouseEvent) => {
     e.stopPropagation();
   };
+  
+  // Lógica de estilos para los anillos
+  const ringClasses = [
+    'ring-2 ring-slate-600', // Anillo base
+    isHero ? 'ring-amber-400' : '', // Anillo para el Hero
+    isCurrentPlayer ? 'ring-4 ring-green-400' : '', // Anillo para el jugador activo
+    player.hasFolded ? 'opacity-40' : '' // Opacidad si el jugador se ha retirado
+  ].join(' ');
 
-  const ringClasses = isCurrentPlayer
-    ? 'ring-4 ring-yellow-400 shadow-yellow-400/30'
-    : isHero
-    ? 'ring-4 ring-amber-400'
-    : 'ring-2 ring-slate-600';
-
-  // NEW: Visual feedback for folded players
-  const foldedClass = player.hasFolded ? 'opacity-40' : '';
-
-  const seatClasses = `relative flex h-36 w-44 flex-col items-center justify-between rounded-lg bg-slate-700 text-white shadow-lg transition-all cursor-pointer ${ringClasses} ${foldedClass}`;
+  const seatClasses = `relative flex h-36 w-44 flex-col items-center justify-between rounded-lg bg-slate-700 text-white shadow-lg transition-all cursor-pointer ${ringClasses}`;
   const disabledInputStyles = isHandInProgress ? 'opacity-60 cursor-not-allowed' : '';
 
   return (
@@ -67,14 +66,15 @@ export const Seat = ({
               <PlayingCard card={player.holeCards[1]} />
             </>
           ) : (
-            // Prevent showing button if player has folded
-            !player.hasFolded && (
-              <Button onClick={(e) => { e.stopPropagation(); onSelectCardsClick(); }} variant="secondary">
-                Seleccionar Cartas
-              </Button>
-            )
+            !player.hasFolded && <Button onClick={onSelectCardsClick} variant="secondary">
+              Seleccionar Cartas
+            </Button>
           )
         ) : null}
+         {/* Mostrar cartas retiradas para jugadores que no son el Hero */}
+         {!isHero && player.hasFolded && isHandInProgress && (
+          <span className="text-lg font-bold text-red-500">FOLD</span>
+        )}
       </div>
 
       <div
