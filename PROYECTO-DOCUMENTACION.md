@@ -81,3 +81,13 @@ src/store: Configuración del store global de Redux.
 Comando de Creación de Carpetas:
 
 mkdir -p src/assets src/components/ui src/components/layout src/components/features src/features src/hooks src/lib src/pages src/routes src/store
+
+
+
+COMANDOS PARA REVERTIR EN github
+
+git log --oneline
+
+Busco id
+
+git checkout c7d8e9f .
