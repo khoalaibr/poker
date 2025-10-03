@@ -9,7 +9,10 @@ import {
   updatePlayerStack,
   playerAct,
   dealCommunityCards,
-  type ActionType, // Asegurarse que ActionType es importado como un tipo
+  type ActionType,
+  // --- NUEVO: Importamos las nuevas acciones ---
+  resetGame,
+  prepareNextHand,
 } from '../features/table/tableSlice';
 import { Button } from '../components/ui/Button';
 import { Pot } from '../components/ui/Pot';
@@ -18,25 +21,33 @@ import type { Card } from '../lib/deck';
 import { ActionPanel } from '../components/features/ActionPanel';
 import { Board } from '../components/ui/Board';
 import type { RootState } from '../store/store';
-// --- NUEVO: Importamos los componentes y helpers de la IA ---
 import { getAiSuggestion, type AiSuggestion } from '../lib/aiHelper';
 import { SuggestionDisplay } from '../components/features/SuggestionDisplay';
+// --- NUEVO: Importamos useNavigate para la redirección ---
+import { useNavigate } from 'react-router-dom';
 
 export const TablePage = () => {
   const dispatch = useDispatch();
-  // --- NUEVO: Leemos el estado completo en una variable para la IA ---
-  const tableState = useSelector((state: RootState) => state.table);
+  // --- NUEVO: Hook para navegar ---
+  const navigate = useNavigate();
+  const tableState = useSelector((state: RootState) => state.table);
   const { players, buttonSeat, heroSeat, handState, pot, deck, currentPlayerSeat, amountToCall, blinds, board } = tableState;
 
   const [deckSelectorMode, setDeckSelectorMode] = useState<'holeCards' | 'flop' | 'turn' | 'river' | null>(null);
-
-  // --- NUEVO: Estados para manejar la sugerencia ---
   const [suggestion, setSuggestion] = useState<AiSuggestion | null>(null);
   const [isLoadingSuggestion, setIsLoadingSuggestion] = useState(false);
 
+  // --- NUEVO: useEffect para redirigir si el juego se reinicia ---
+  useEffect(() => {
+    // Si no hay jugadores (estado inicial), volvemos al inicio.
+    if (players.length === 0) {
+      navigate('/');
+    }
+  }, [players, navigate]);
+
   const isHandInProgress = handState !== 'PREHAND';
   const activePlayer = players.find(p => p.seat === currentPlayerSeat);
-  const isBettingRoundOver = isHandInProgress && currentPlayerSeat === null;
+  const isBettingRoundOver = isHandInProgress && currentPlayerSeat === null && handState !== 'SHOWDOWN';
 
   let dealButtonText = '';
   if (isBettingRoundOver) {
@@ -45,21 +56,19 @@ export const TablePage = () => {
     else if (handState === 'TURN') dealButtonText = 'Repartir River';
   }
 
-  // --- NUEVO: useEffect para llamar a la IA automáticamente ---
-  useEffect(() => {
-    // Si es el turno del HERO y no estamos ya cargando una sugerencia...
-    if (currentPlayerSeat === heroSeat && !isLoadingSuggestion && heroSeat !== null) {
-      const fetchSuggestion = async () => {
-        setIsLoadingSuggestion(true);
-        setSuggestion(null); // Limpiamos la sugerencia anterior
-        const result = await getAiSuggestion(tableState);
-        if (result) setSuggestion(result);
-        setIsLoadingSuggestion(false);
-      };
-      fetchSuggestion();
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPlayerSeat, heroSeat]); // Se dispara solo cuando cambia el turno y es el Hero
+  useEffect(() => {
+    if (currentPlayerSeat === heroSeat && !isLoadingSuggestion && heroSeat !== null) {
+      const fetchSuggestion = async () => {
+        setIsLoadingSuggestion(true);
+        setSuggestion(null);
+        const result = await getAiSuggestion(tableState);
+        if (result) setSuggestion(result);
+        setIsLoadingSuggestion(false);
+      };
+      fetchSuggestion();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPlayerSeat, heroSeat]);
 
   const handleSeatClick = (seatIndex: number) => {
     if (isHandInProgress) return;
@@ -68,6 +77,10 @@ export const TablePage = () => {
   };
 
   const handleStartHand = () => dispatch(startHand());
+
+  // --- NUEVO: Handlers para los nuevos botones ---
+  const handleResetGame = () => dispatch(resetGame());
+  const handlePrepareNextHand = () => dispatch(prepareNextHand());
 
   const handleDealCommunityClick = () => {
     if (handState === 'PREFLOP') setDeckSelectorMode('flop');
@@ -83,29 +96,33 @@ export const TablePage = () => {
     }
     setDeckSelectorMode(null);
   };
-  
-  // --- MODIFICADO: Ahora `type` es ActionType para consistencia ---
+  
   const handlePlayerAct = (type: ActionType, amount?: number) => {
-    if (activePlayer) {
-      dispatch(playerAct({ seat: activePlayer.seat, type, amount }));
-      // --- NUEVO: Ocultamos la sugerencia después de actuar ---
-      setSuggestion(null);
-    }
-  };
+    if (activePlayer) {
+      dispatch(playerAct({ seat: activePlayer.seat, type, amount }));
+      setSuggestion(null);
+    }
+  };
 
-  // --- NUEVO: Función para aplicar la sugerencia ---
   const handleApplySuggestion = (sug: AiSuggestion) => {
-    if (!activePlayer) return;
-    const actionType = sug.action.toUpperCase() as ActionType;
-    let actionAmount = 0;
-    if ((actionType === 'RAISE' || actionType === 'BET') && sug.size_bb) {
-      actionAmount = Math.round(sug.size_bb * tableState.blinds.bb);
-    }
-    handlePlayerAct(actionType, actionAmount);
-  };
+    if (!activePlayer) return;
+    const actionType = sug.action.toUpperCase() as ActionType;
+    let actionAmount = 0;
+    if ((actionType === 'RAISE' || actionType === 'BET') && sug.size_bb) {
+      actionAmount = Math.round(sug.size_bb * tableState.blinds.bb);
+    }
+    handlePlayerAct(actionType, actionAmount);
+  };
 
   return (
     <div className="flex min-h-screen w-full flex-col items-center justify-center gap-8 bg-slate-800 p-4">
+      {/* --- NUEVO: Botones globales en la esquina superior derecha --- */}
+      <div className="absolute top-4 right-4 flex gap-2">
+        <Button onClick={handleResetGame} variant="secondary" className="bg-red-800 hover:bg-red-700">
+          Reiniciar Partida
+        </Button>
+      </div>
+
       <div className="flex flex-col items-center gap-4">
         <Pot amount={pot} />
         <Board cards={board} />
@@ -117,32 +134,39 @@ export const TablePage = () => {
         ))}
       </div>
       
-      <div className="absolute bottom-10 flex flex-col items-center gap-4">
-        {/* --- NUEVO: Renderizado del display de sugerencia --- */}
-        {(isLoadingSuggestion || suggestion) && heroSeat === currentPlayerSeat && (
-          <SuggestionDisplay isLoading={isLoadingSuggestion} suggestion={suggestion!} onApply={handleApplySuggestion} />
-        )}
+      <div className="absolute bottom-10 flex w-full max-w-4xl flex-col items-center gap-4">
+        {(isLoadingSuggestion || suggestion) && heroSeat === currentPlayerSeat && (
+          <SuggestionDisplay isLoading={isLoadingSuggestion} suggestion={suggestion!} onApply={handleApplySuggestion} />
+        )}
 
         {!isHandInProgress && buttonSeat !== null && heroSeat !== null && <Button onClick={handleStartHand}>Repartir Cartas</Button>}
         {isBettingRoundOver && dealButtonText && <Button onClick={handleDealCommunityClick}>{dealButtonText}</Button>}
-        {isHandInProgress && activePlayer && (
-          <ActionPanel 
-            playerName={`Asiento ${activePlayer.seat + 1}`} 
-            amountToCall={amountToCall - activePlayer.amountInvestedThisStreet} 
-            playerStack={activePlayer.stack} 
-            minRaise={blinds.bb * 2} // Esto podría mejorarse en el futuro
-            onAction={handlePlayerAct}
-          />
+
+        {/* --- NUEVO: Botón para la siguiente mano cuando termina la actual --- */}
+        {handState === 'SHOWDOWN' && (
+          <Button onClick={handlePrepareNextHand} variant="primary" className="animate-pulse">
+            Siguiente Mano
+          </Button>
         )}
+
+        {isHandInProgress && activePlayer && (
+          <ActionPanel 
+            playerName={`Asiento ${activePlayer.seat + 1}`} 
+            amountToCall={amountToCall - activePlayer.amountInvestedThisStreet} 
+            playerStack={activePlayer.stack} 
+            minRaise={blinds.bb * 2}
+            onAction={handlePlayerAct}
+          />
+        )}
       </div>
 
       {deckSelectorMode && (
         <DeckSelector 
-          mode={deckSelectorMode} 
-          deck={deck} 
-          onConfirm={handleSelectCardsConfirm} 
-          onCancel={() => setDeckSelectorMode(null)} 
-        />
+          mode={deckSelectorMode} 
+          deck={deck} 
+          onConfirm={handleSelectCardsConfirm} 
+          onCancel={() => setDeckSelectorMode(null)} 
+        />
       )}
     </div>
   );
